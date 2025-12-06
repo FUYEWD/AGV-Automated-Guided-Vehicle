@@ -1,0 +1,665 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AGV Fleet Diagnosis System 模擬平台</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script>
+        // Lucide-React 的圖示需要手動定義或替換為標準 SVG/圖像。
+        // 為簡化，我們將在 JSX 中使用 React Element 佔位符或內聯 SVG。
+        // 這裡將圖示名稱映射到簡單的 React 組件。
+        const Icon = (name, size = 16) => {
+            const icons = {
+                AlertCircle: ({ size }) => React.createElement('svg', { xmlns: "http://www.w3.org/2000/svg", width: size, height: size, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", "strokeWidth": "2", "strokeLinecap": "round", "strokeLinejoin": "round" }, React.createElement('circle', { cx: "12", cy: "12", r: "10" }), React.createElement('line', { x1: "12", y1: "8", x2: "12", y2: "12" }), React.createElement('line', { x1: "12", y1: "16", x2: "12.01", y2: "16" })),
+                Battery: ({ size }) => React.createElement('svg', { xmlns: "http://www.w3.org/2000/svg", width: size, height: size, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", "strokeWidth": "2", "strokeLinecap": "round", "strokeLinejoin": "round" }, React.createElement('rect', { x: "1", y: "6", width: "18", height: "12", rx: "2", ry: "2" }), React.createElement('line', { x1: "23", y1: "10", x2: "23", y2: "14" })),
+                TrendingUp: ({ size }) => React.createElement('svg', { xmlns: "http://www.w3.org/2000/svg", width: size, height: size, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", "strokeWidth": "2", "strokeLinecap": "round", "strokeLinejoin": "round" }, React.createElement('polyline', { points: "22 7 13.5 15.5 8.5 10.5 2 17" }), React.createElement('polyline', { points: "16 7 22 7 22 13" })),
+                Activity: ({ size }) => React.createElement('svg', { xmlns: "http://www.w3.org/2000/svg", width: size, height: size, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", "strokeWidth": "2", "strokeLinecap": "round", "strokeLinejoin": "round" }, React.createElement('polyline', { points: "22 12 18 12 15 21 9 3 6 12 2 12" })),
+                Play: ({ size }) => React.createElement('svg', { xmlns: "http://www.w3.org/2000/svg", width: size, height: size, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", "strokeWidth": "2", "strokeLinecap": "round", "strokeLinejoin": "round" }, React.createElement('polygon', { points: "5 3 19 12 5 21 5 3" })),
+                Pause: ({ size }) => React.createElement('svg', { xmlns: "http://www.w3.org/2000/svg", width: size, height: size, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", "strokeWidth": "2", "strokeLinecap": "round", "strokeLinejoin": "round" }, React.createElement('rect', { x: "6", y: "4", width: "4", height: "16" }), React.createElement('rect', { x: "14", y: "4", width: "4", height: "16" })),
+                RotateCcw: ({ size }) => React.createElement('svg', { xmlns: "http://www.w3.org/2000/svg", width: size, height: size, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", "strokeWidth": "2", "strokeLinecap": "round", "strokeLinejoin": "round" }, React.createElement('path', { d: "M1 4v6h6" }), React.createElement('path', { d: "M3.51 15a9 9 0 1 0 2.13-9.5" })),
+                // Zap: ({ size }) => React.createElement('svg', { xmlns: "http://www.w3.org/2000/svg", width: size, height: size, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", "strokeWidth": "2", "strokeLinecap": "round", "strokeLinejoin": "round" }, React.createElement('polygon', { points: "13 2 3 14 12 14 11 22 21 10 12 10 13 2" })),
+            };
+            const Comp = icons[name];
+            return Comp ? React.createElement(Comp, { size }) : React.createElement('span', null, `[${name}]`);
+        };
+        const AlertCircle = (props) => Icon('AlertCircle', props.size);
+        const Battery = (props) => Icon('Battery', props.size);
+        const TrendingUp = (props) => Icon('TrendingUp', props.size);
+        const Activity = (props) => Icon('Activity', props.size);
+        const Play = (props) => Icon('Play', props.size);
+        const Pause = (props) => Icon('Pause', props.size);
+        const RotateCcw = (props) => Icon('RotateCcw', props.size);
+        // const Zap = (props) => Icon('Zap', props.size);
+    </script>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+        // 由於我們手動定義了 Icon 輔助函數，這裡不再需要 import
+        // const { AlertCircle, Battery, TrendingUp, Activity, Play, Pause, RotateCcw, Zap } = require('lucide-react'); 
+        
+        // AGV 車輛類
+        class AGV {
+            constructor(id, x, y, color) {
+                this.id = id;
+                this.x = x;
+                this.y = y;
+                this.targetX = x;
+                this.targetY = y;
+                this.color = color;
+                this.battery = 100;
+                this.status = 'idle'; // idle, moving, charging, blocked, deadlock
+                this.speed = 0.5;
+                this.path = [];
+                this.task = null; // delivery, charging, yielding
+                this.isCharging = false;
+            }
+            update() {
+                // 電量消耗
+                if (this.status === 'moving') {
+                    this.battery = Math.max(0, this.battery - 0.05);
+                } else if (this.status === 'charging') {
+                    this.battery = Math.min(100, this.battery + 0.3);
+                    if (this.battery >= 100) {
+                        this.status = 'idle';
+                        this.isCharging = false;
+                        this.task = null; 
+                    }
+                }
+                // 移動邏輯
+                if (this.path.length > 0 && this.status === 'moving') {
+                    const target = this.path[0];
+                    const dx = target.x - this.x;
+                    const dy = target.y - this.y;
+                    const dist = Math.sqrt(dx * dx + dy * dy);
+
+                    if (dist < this.speed) {
+                        this.x = target.x;
+                        this.y = target.y;
+                        this.path.shift();
+                        if (this.path.length === 0) {
+                            this.status = 'idle';
+                            if (this.task === 'delivery') {
+                                this.task = null;
+                            }
+                        }
+                    } else {
+                        this.x += (dx / dist) * this.speed;
+                        this.y += (dy / dist) * this.speed;
+                    }
+                }
+            }
+            needsCharging() {
+                return this.battery < 30 && !this.isCharging;
+            }
+        }
+
+        // A* 尋路算法
+        function findPath(start, end, grid, obstacles) {
+            // 將座標對齊到網格中心點 (x % 40 === 20)
+            const align = (coord) => Math.round(coord / 40) * 40 + 20;
+
+            const startNode = { x: align(start.x), y: align(start.y) };
+            const endNode = { x: align(end.x), y: align(end.y) };
+
+            const openSet = [{ ...startNode, g: 0, h: 0, f: 0, parent: null }];
+            const closedSet = [];
+            const gridSize = 40;
+
+            const heuristic = (a, b) => Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
+
+            while (openSet.length > 0) {
+                openSet.sort((a, b) => a.f - b.f);
+                const current = openSet.shift();
+
+                // 檢查是否到達終點 (網格級別接近)
+                if (Math.abs(current.x - endNode.x) < gridSize && Math.abs(current.y - endNode.y) < gridSize) {
+                    const path = [];
+                    let node = current;
+                    while (node) {
+                        path.unshift({ x: node.x, y: node.y });
+                        node = node.parent;
+                    }
+                    // 移除第一個節點（即起點）
+                    path.shift(); 
+                    return path;
+                }
+
+                closedSet.push(current);
+
+                const neighbors = [
+                    { x: current.x + gridSize, y: current.y },
+                    { x: current.x - gridSize, y: current.y },
+                    { x: current.x, y: current.y + gridSize },
+                    { x: current.x, y: current.y - gridSize },
+                ];
+
+                for (const neighbor of neighbors) {
+                    // 邊界檢查 (800x600 的邊界)
+                    if (neighbor.x < 20 || neighbor.x > 780 || neighbor.y < 20 || neighbor.y > 580) continue;
+
+                    // 障礙物檢查
+                    const isObstacle = obstacles.some(obs => 
+                        Math.abs(obs.x - neighbor.x) < gridSize && Math.abs(obs.y - neighbor.y) < gridSize
+                    );
+                    if (isObstacle) continue;
+
+                    // 檢查是否已在封閉列表
+                    const inClosed = closedSet.some(node => node.x === neighbor.x && node.y === neighbor.y);
+                    if (inClosed) continue;
+
+                    const g = current.g + gridSize;
+                    const h = heuristic(neighbor, endNode);
+                    const f = g + h;
+
+                    const inOpen = openSet.find(node => node.x === neighbor.x && node.y === neighbor.y);
+
+                    if (!inOpen || g < inOpen.g) {
+                        const newNode = { ...neighbor, g, h, f, parent: current };
+                        if (!inOpen) {
+                            openSet.push(newNode);
+                        } else {
+                            // 更新現有節點
+                            Object.assign(inOpen, newNode);
+                        }
+                    }
+                }
+            }
+            return [];
+        }
+
+        // 死鎖檢測與恢復
+        function detectDeadlock(agvs, addEvent, setStats) {
+            const blocked = agvs.filter(agv => agv.status === 'blocked');
+            
+            for (let i = 0; i < blocked.length; i++) {
+                for (let j = i + 1; j < blocked.length; j++) {
+                    const agv1 = blocked[i];
+                    const agv2 = blocked[j];
+
+                    if (agv1.path.length > 0 && agv2.path.length > 0) {
+                        const target1 = agv1.path[0];
+                        const target2 = agv2.path[0];
+                        
+                        // 檢查它們是否試圖移動到彼此附近
+                        const dist = Math.sqrt(
+                            Math.pow(target1.x - target2.x, 2) + Math.pow(target1.y - target2.y, 2)
+                        );
+                        
+                        if (dist < 50) {
+                            // 死鎖恢復邏輯：讓 ID 較大的車輛退讓 (Yield)
+                            const yieldAgv = agv1.id > agv2.id ? agv1 : agv2;
+                            
+                            if (yieldAgv.status === 'blocked') { // 確保只對 blocked 的車輛進行 recovery
+                                
+                                // 立即改變狀態，並清除路徑，讓它等待
+                                yieldAgv.status = 'deadlock';
+                                yieldAgv.path = []; 
+                                yieldAgv.task = 'yielding';
+                                
+                                addEvent(`💥 死鎖恢復：AGV-${yieldAgv.id} 退讓`, 'error');
+                                setStats(prev => ({ ...prev, deadlocks: prev.deadlocks + 1 }));
+
+                                // 模擬短暫退讓時間後，重新設為 idle，等待 TaskScheduler 重新分配任務
+                                setTimeout(() => {
+                                   yieldAgv.status = 'idle';
+                                   yieldAgv.task = null;
+                                }, 1000); 
+                            }
+                        }
+                    }
+                }
+            }
+            return agvs;
+        }
+
+        // 任務排程器 (中央控制系統)
+        function TaskScheduler(agvs, obstacles, chargingStations, addEvent, setStats) {
+            // 1. 識別需要充電的 AGV
+            agvs.forEach(agv => {
+                if (agv.needsCharging() && agv.status !== 'charging' && agv.task !== 'charging' && agv.task !== 'yielding') {
+                    const station = chargingStations.find(s => !s.occupied);
+                    if (station) {
+                        const path = findPath(
+                            { x: agv.x, y: agv.y },
+                            { x: station.x, y: station.y },
+                            40,
+                            obstacles
+                        );
+                        if (path.length > 0) {
+                            agv.path = path;
+                            agv.targetX = station.x;
+                            agv.targetY = station.y;
+                            agv.status = 'moving';
+                            agv.task = 'charging';
+                            station.occupied = true; // 預佔充電站 (這裡直接修改 station 陣列的狀態)
+                            addEvent(`AGV-${agv.id} 轉向充電任務`, 'warning');
+                            setStats(prev => ({ ...prev, lowBatteryWarnings: prev.lowBatteryWarnings + 1 }));
+                        }
+                    }
+                }
+            });
+
+            // 2. 隨機生成一個需要執行的任務（如果 AGV 空閒）
+            const idleAgvs = agvs.filter(agv => agv.status === 'idle' && agv.task === null);
+            
+            if (idleAgvs.length > 0) {
+                const agv = idleAgvs[0]; 
+
+                // 排程決策：檢查電量是否充足以避免任務中途充電
+                if (agv.battery < 50) { 
+                    return; 
+                }
+
+                // 產生一個合理的目標點
+                let targetX, targetY;
+                do {
+                    targetX = Math.floor(Math.random() * 20) * 40 + 20;
+                    targetY = Math.floor(Math.random() * 15) * 40 + 20;
+                } while (obstacles.some(obs => Math.abs(obs.x - targetX) < 40 && Math.abs(obs.y - targetY) < 40) ||
+                         chargingStations.some(station => Math.abs(station.x - targetX) < 40 && Math.abs(station.y - targetY) < 40)
+                );
+
+                const path = findPath(
+                    { x: agv.x, y: agv.y },
+                    { x: targetX, y: targetY },
+                    40,
+                    obstacles
+                );
+
+                if (path.length > 0) {
+                    agv.path = path;
+                    agv.targetX = targetX;
+                    agv.targetY = targetY;
+                    agv.status = 'moving';
+                    agv.task = 'delivery';
+                    addEvent(`AGV-${agv.id} 接收新任務 (${targetX}, ${targetY})`, 'info');
+                    setStats(prev => ({ ...prev, tasksCompleted: prev.tasksCompleted + 1 }));
+                }
+            }
+        }
+
+
+        function AGVDiagnosisSystem() {
+            const canvasRef = useRef(null);
+            const [agvs, setAgvs] = useState([]);
+            const [obstacles, setObstacles] = useState([]);
+            const [chargingStations, setChargingStations] = useState([]);
+            const [events, setEvents] = useState([]);
+            const [isRunning, setIsRunning] = useState(false);
+            const [stats, setStats] = useState({ tasksCompleted: 0, deadlocks: 0, lowBatteryWarnings: 0, avgBattery: 100 });
+
+            // 初始化場景
+            useEffect(() => {
+                const newAgvs = [
+                    new AGV(1, 100, 100, '#4ecdc4'),
+                    new AGV(2, 700, 100, '#45b7d1'),
+                    new AGV(3, 100, 500, '#96ceb4'),
+                    new AGV(4, 700, 500, '#ffeaa7'),
+                ].map(a => {
+                    // 將初始座標對齊到網格中心 (x % 40 === 20)
+                    a.x = Math.round(a.x / 40) * 40 + 20;
+                    a.y = Math.round(a.y / 40) * 40 + 20;
+                    return a;
+                });
+                
+                const newObstacles = [
+                    { x: 420, y: 300, width: 80, height: 80, type: 'rack' },
+                    { x: 220, y: 220, width: 60, height: 60, type: 'rack' },
+                    { x: 620, y: 420, width: 60, height: 60, type: 'rack' },
+                ];
+                
+                const newStations = [
+                    { x: 20, y: 20, occupied: false },
+                    { x: 780, y: 580, occupied: false },
+                ];
+
+                setAgvs(newAgvs);
+                setObstacles(newObstacles);
+                setChargingStations(newStations);
+                addEvent('系統啟動', 'info');
+            }, []);
+
+            const addEvent = (message, type) => {
+                const time = new Date().toLocaleTimeString();
+                setEvents(prev => [{ time, message, type }, ...prev.slice(0, 9)]);
+            };
+
+            // 遊戲循環
+            useEffect(() => {
+                if (!isRunning) return;
+
+                const interval = setInterval(() => {
+                    setChargingStations(prevStations => {
+                        // 創建一個可變的充電站副本，TaskScheduler 可以修改它
+                        const stationsCopy = prevStations.map(s => ({ ...s }));
+
+                        setAgvs(prevAgvs => {
+                            const updated = prevAgvs.map(agv => {
+                                const newAgv = { ...agv };
+                                
+                                const agvObj = new AGV(newAgv.id, newAgv.x, newAgv.y, newAgv.color);
+                                Object.assign(agvObj, newAgv); 
+                                agvObj.update();
+
+                                // 到達充電站釋放佔位
+                                if (agvObj.task === 'charging' && agvObj.path.length === 0 && agvObj.status === 'idle') {
+                                    agvObj.status = 'charging';
+                                    agvObj.isCharging = true;
+                                }
+                                // 完成充電釋放佔位
+                                if (agvObj.status === 'idle' && newAgv.isCharging === true && agvObj.isCharging === false) {
+                                    const station = stationsCopy.find(s => Math.abs(s.x - agvObj.x) < 20 && Math.abs(s.y - agvObj.y) < 20);
+                                    if (station) {
+                                        station.occupied = false;
+                                    }
+                                }
+
+                                // 簡化碰撞阻塞檢測
+                                const tooClose = prevAgvs.some(other => 
+                                    other.id !== agvObj.id && 
+                                    (other.status === 'moving' || other.status === 'blocked' || other.status === 'deadlock') && // 只有移動中的或已停的車會阻擋
+                                    Math.sqrt(Math.pow(other.x - agvObj.x, 2) + Math.pow(other.y - agvObj.y, 2)) < 45
+                                ); 
+                                
+                                if (tooClose && agvObj.status === 'moving') {
+                                    agvObj.status = 'blocked';
+                                } else if (!tooClose && agvObj.status === 'blocked' && agvObj.path.length > 0) {
+                                    agvObj.status = 'moving';
+                                }
+
+                                return agvObj;
+                            });
+
+                            // 中央排程器調度 (傳入可變的 stationsCopy)
+                            TaskScheduler(updated, obstacles, stationsCopy, addEvent, setStats);
+
+                            // 死鎖檢測與恢復
+                            const resolvedAgvs = detectDeadlock(updated, addEvent, setStats); 
+
+                            // 更新平均電量
+                            const avgBatt = resolvedAgvs.reduce((sum, agv) => sum + agv.battery, 0) / resolvedAgvs.length;
+                            setStats(prev => ({ ...prev, avgBattery: avgBatt }));
+
+                            // 返回更新後的 AGVs
+                            return resolvedAgvs;
+                        });
+
+                        // 返回被 TaskScheduler 修改過的 stationsCopy
+                        return stationsCopy;
+                    });
+                }, 50);
+
+                return () => clearInterval(interval);
+            }, [isRunning, obstacles, addEvent, setStats]); // 依賴需要保持最新
+
+            // 繪製場景
+            useEffect(() => {
+                const canvas = canvasRef.current;
+                if (!canvas) return;
+                const ctx = canvas.getContext('2d');
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+                // 繪製網格
+                ctx.strokeStyle = '#2a2a3e';
+                ctx.lineWidth = 1;
+                for (let i = 0; i <= 800; i += 40) {
+                    ctx.beginPath();
+                    ctx.moveTo(i, 0); ctx.lineTo(i, 600);
+                    ctx.stroke();
+                }
+                for (let i = 0; i <= 600; i += 40) {
+                    ctx.beginPath();
+                    ctx.moveTo(0, i); ctx.lineTo(800, i);
+                    ctx.stroke();
+                }
+
+                // 繪製障礙物
+                ctx.fillStyle = '#3d3d5c';
+                obstacles.forEach(obs => {
+                    ctx.fillRect(obs.x - obs.width/2, obs.y - obs.height/2, obs.width, obs.height);
+                    ctx.strokeStyle = '#5d5d7c';
+                    ctx.strokeRect(obs.x - obs.width/2, obs.y - obs.height/2, obs.width, obs.height);
+                });
+
+                // 繪製充電站
+                chargingStations.forEach(station => {
+                    ctx.fillStyle = station.occupied ? '#ffad42' : '#ffe66d';
+                    ctx.fillRect(station.x - 20, station.y - 20, 40, 40);
+                    ctx.strokeStyle = '#ffd93d';
+                    ctx.lineWidth = 2;
+                    ctx.strokeRect(station.x - 20, station.y - 20, 40, 40);
+                    // 增加充電閃電圖示
+                    ctx.fillStyle = '#1a1a2e';
+                    ctx.font = '16px sans-serif';
+                    ctx.textAlign = 'center';
+                    ctx.fillText('⚡', station.x, station.y + 6);
+                });
+
+                // 繪製 AGV 路徑
+                agvs.forEach(agv => {
+                    if (agv.path.length > 0) {
+                        ctx.strokeStyle = agv.color + '60';
+                        ctx.lineWidth = 3;
+                        ctx.setLineDash([5, 5]); // 虛線
+                        ctx.beginPath();
+                        ctx.moveTo(agv.x, agv.y);
+                        agv.path.forEach(point => {
+                            ctx.lineTo(point.x, point.y);
+                        });
+                        ctx.stroke();
+                        ctx.setLineDash([]); // 恢復實線
+
+                        // 繪製最終目標點
+                        const target = agv.path[agv.path.length - 1];
+                        ctx.fillStyle = agv.color + 'a0';
+                        ctx.beginPath();
+                        ctx.arc(target.x, target.y, 8, 0, Math.PI * 2);
+                        ctx.fill();
+                    }
+                });
+
+                // 繪製 AGV
+                agvs.forEach(agv => {
+                    // 車體
+                    ctx.fillStyle = agv.color;
+                    ctx.beginPath();
+                    ctx.arc(agv.x, agv.y, 15, 0, Math.PI * 2);
+                    ctx.fill();
+
+                    // 狀態指示
+                    if (agv.status === 'blocked' || agv.status === 'deadlock') {
+                        ctx.strokeStyle = '#ff6b6b';
+                        ctx.lineWidth = 3;
+                        ctx.stroke();
+                    } else if (agv.status === 'charging') {
+                        ctx.strokeStyle = '#ffe66d';
+                        ctx.lineWidth = 3;
+                        ctx.stroke();
+                    }
+
+                    // ID 標籤
+                    ctx.fillStyle = '#fff';
+                    ctx.font = 'bold 12px monospace';
+                    ctx.textAlign = 'center';
+                    ctx.fillText(agv.id, agv.x, agv.y + 4);
+
+                    // 電量條
+                    const barWidth = 30;
+                    const barHeight = 4;
+                    ctx.fillStyle = '#2a2a3e';
+                    ctx.fillRect(agv.x - barWidth/2, agv.y - 25, barWidth, barHeight);
+                    const batteryColor = agv.battery > 50 ? '#4ecdc4' : agv.battery > 20 ? '#ffe66d' : '#ff6b6b';
+                    ctx.fillStyle = batteryColor;
+                    ctx.fillRect(agv.x - barWidth/2, agv.y - 25, (agv.battery / 100) * barWidth, barHeight);
+                });
+            }, [agvs, obstacles, chargingStations]);
+
+            const triggerDeadlockScenario = () => {
+                addEvent('啟動死鎖測試場景', 'warning');
+                // 讓兩台車互相朝對方移動的交會點 (例如 420, 340)
+                const targetX = 420;
+                const targetY = 340;
+
+                const path1 = findPath({ x: agvs[0].x, y: agvs[0].y }, { x: targetX + 40, y: targetY }, 40, obstacles);
+                const path2 = findPath({ x: agvs[1].x, y: agvs[1].y }, { x: targetX - 40, y: targetY }, 40, obstacles);
+                
+                setAgvs(prev => prev.map(agv => {
+                    if (agv.id === 1) return { ...agv, path: path1, targetX: targetX + 40, targetY: targetY, status: 'moving', task: 'delivery' };
+                    if (agv.id === 2) return { ...agv, path: path2, targetX: targetX - 40, targetY: targetY, status: 'moving', task: 'delivery' };
+                    return agv;
+                }));
+            };
+
+            const triggerBatteryScenario = () => {
+                addEvent('觸發電量危機場景', 'warning');
+                setAgvs(prev => prev.map(agv => ({ ...agv, battery: Math.random() * 25 })));
+            };
+
+            const resetSystem = () => {
+                window.location.reload();
+            };
+
+            return (
+                <div className="min-h-screen bg-[#1a1a2e] text-white p-4">
+                    {/* 標題列 */}
+                    <div className="flex items-center justify-between mb-4">
+                        <div>
+                            <h1 className="text-2xl font-bold text-[#4ecdc4]">AGV Fleet Diagnosis System</h1>
+                            <p className="text-gray-400 text-sm">無人搬運車故障診斷與預防模擬平台</p>
+                        </div>
+                        <div className="flex gap-2">
+                            <button onClick={() => setIsRunning(!isRunning)} className={`px-4 py-2 rounded flex items-center gap-2 ${ isRunning ? 'bg-red-600 hover:bg-red-700' : 'bg-green-600 hover:bg-green-700' }`} >
+                                {isRunning ? <><Pause size={16} /> 暫停</> : <><Play size={16} /> 啟動</>}
+                            </button>
+                            <button onClick={resetSystem} className="px-4 py-2 rounded bg-gray-600 hover:bg-gray-700 flex items-center gap-2" >
+                                <RotateCcw size={16} /> 重置
+                            </button>
+                        </div>
+                    </div>
+                    <div className="grid grid-cols-3 gap-4">
+                        {/* 左側：3D 場景 */}
+                        <div className="col-span-2 bg-[#16213e] rounded-lg p-4">
+                            <div className="flex justify-between items-center mb-2">
+                                <h2 className="text-lg font-semibold">倉儲模擬場景 (800x600)</h2>
+                                <div className="flex gap-2 text-xs">
+                                    <span className="px-2 py-1 bg-[#4ecdc4] rounded">正常運行</span>
+                                    <span className="px-2 py-1 bg-[#ffe66d] text-black rounded">充電中</span>
+                                    <span className="px-2 py-1 bg-[#ff6b6b] rounded">阻塞/死鎖</span>
+                                </div>
+                            </div>
+                            <canvas ref={canvasRef} width={800} height={600} className="w-full border border-gray-700 rounded bg-[#0f1419]" />
+                            {/* 場景控制 */}
+                            <div className="mt-4 grid grid-cols-3 gap-2">
+                                <button onClick={triggerDeadlockScenario} className="px-3 py-2 bg-orange-600 hover:bg-orange-700 rounded text-sm" >
+                                    ⚠️ 觸發死鎖場景
+                                </button>
+                                <button onClick={triggerBatteryScenario} className="px-3 py-2 bg-yellow-600 hover:bg-yellow-700 rounded text-sm" >
+                                    🔋 觸發電量危機
+                                </button>
+                                <button className="px-3 py-2 bg-blue-600 rounded text-sm opacity-50 cursor-not-allowed" >
+                                    🤖 任務自動排程中
+                                </button>
+                            </div>
+                        </div>
+                        {/* 右側：監控面板 */}
+                        <div className="space-y-4">
+                            {/* 系統統計 */}
+                            <div className="bg-[#16213e] rounded-lg p-4">
+                                <h3 className="text-sm font-semibold mb-3 flex items-center gap-2">
+                                    <TrendingUp size={16} /> 系統統計
+                                </h3>
+                                <div className="space-y-2 text-sm">
+                                    <div className="flex justify-between">
+                                        <span className="text-gray-400">完成任務</span>
+                                        <span className="font-mono text-[#4ecdc4]">{stats.tasksCompleted}</span>
+                                    </div>
+                                    <div className="flex justify-between">
+                                        <span className="text-gray-400">死鎖次數</span>
+                                        <span className="font-mono text-[#ff6b6b]">{stats.deadlocks}</span>
+                                    </div>
+                                    <div className="flex justify-between">
+                                        <span className="text-gray-400">低電量警告</span>
+                                        <span className="font-mono text-[#ffe66d]">{stats.lowBatteryWarnings}</span>
+                                    </div>
+                                    <div className="flex justify-between">
+                                        <span className="text-gray-400">平均電量</span>
+                                        <span className="font-mono">{stats.avgBattery.toFixed(1)}%</span>
+                                    </div>
+                                </div>
+                            </div>
+                            {/* 車輛狀態 */}
+                            <div className="bg-[#16213e] rounded-lg p-4">
+                                <h3 className="text-sm font-semibold mb-3 flex items-center gap-2">
+                                    <Activity size={16} /> 車輛狀態
+                                </h3>
+                                <div className="space-y-2">
+                                    {agvs.map(agv => (
+                                        <div key={agv.id} className="p-2 bg-[#0f1419] rounded text-xs">
+                                            <div className="flex justify-between items-center mb-1">
+                                                <span className="font-semibold" style={{ color: agv.color }}> AGV-{agv.id} </span>
+                                                <span className={`px-2 py-0.5 rounded ${ 
+                                                    agv.status === 'idle' ? 'bg-gray-600' : 
+                                                    agv.status === 'moving' ? 'bg-blue-600' : 
+                                                    agv.status === 'charging' ? 'bg-yellow-600' : 
+                                                    agv.status === 'deadlock' ? 'bg-red-800' : 'bg-red-600' 
+                                                }`}> 
+                                                    {agv.status} 
+                                                </span>
+                                            </div>
+                                            <div className="flex justify-between text-gray-400 text-xs mb-1">
+                                                <span>任務: **{agv.task || '無'}**</span>
+                                                {agv.path.length > 0 && (
+                                                    <span>目標: ({agv.path[agv.path.length - 1].x}, {agv.path[agv.path.length - 1].y})</span>
+                                                )}
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                                <Battery size={12} />
+                                                <div className="flex-1 h-2 bg-gray-700 rounded overflow-hidden">
+                                                    <div className="h-full transition-all" style={{ 
+                                                        width: `${agv.battery}%`, 
+                                                        backgroundColor: agv.battery > 50 ? '#4ecdc4' : agv.battery > 20 ? '#ffe66d' : '#ff6b6b' 
+                                                    }} />
+                                                </div>
+                                                <span className="font-mono">{agv.battery.toFixed(0)}%</span>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                            {/* 事件日誌 */}
+                            <div className="bg-[#16213e] rounded-lg p-4">
+                                <h3 className="text-sm font-semibold mb-3 flex items-center gap-2">
+                                    <AlertCircle size={16} /> 事件日誌
+                                </h3>
+                                <div className="space-y-1 text-xs font-mono h-48 overflow-y-auto">
+                                    {events.map((event, idx) => (
+                                        <div key={idx} className={`p-2 rounded ${ 
+                                            event.type === 'error' ? 'bg-red-900/30 text-red-400' : 
+                                            event.type === 'warning' ? 'bg-yellow-900/30 text-yellow-400' : 'bg-blue-900/30 text-blue-400' 
+                                        }`} >
+                                            <span className="text-gray-500">[{event.time}]</span> {event.message}
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        // 渲染組件
+        ReactDOM.render(
+            <AGVDiagnosisSystem />,
+            document.getElementById('root')
+        );
+    </script>
+</body>
+</html>
