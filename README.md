@@ -1,5 +1,3 @@
-# AGV-Automated-Guided-Vehicle
-
 # 🤖 AGV 無人搬運車系統 - 跨品牌協同架構
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
@@ -332,9 +330,8 @@ MIT License - 促進開放標準的採用
 
 ## 🙏 致謝
 
-感謝所有在現實場景中發現問題並推動解決方案的人。這個專案的靈感來自於無數次機器人"卡住"的真實案例。
+感謝所有在現實場景中發現問題並推動解決方案的人，這個專案的靈感來自於火鍋店送餐機器人"卡住"的真實案例。
 
----
 
 **「讓機器人學會禮讓，而不是對峙」**
 
